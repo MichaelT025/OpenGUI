@@ -1,0 +1,148 @@
+{
+  "name": "opengui",
+  "displayName": "OpenGUI",
+  "description": "VSCode GUI for OpenCode CLI",
+  "version": "0.1.0",
+  "publisher": "opengui",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "opencode",
+    "ai",
+    "assistant",
+    "code-generation"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "opengui.openChat",
+        "title": "Open Chat",
+        "category": "OpenGUI"
+      },
+      {
+        "command": "opengui.restartServer",
+        "title": "Restart OpenCode Server",
+        "category": "OpenGUI"
+      },
+      {
+        "command": "opengui.stopServer",
+        "title": "Stop OpenCode Server",
+        "category": "OpenGUI"
+      },
+      {
+        "command": "opengui.showServerLogs",
+        "title": "Show Server Logs",
+        "category": "OpenGUI"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opengui",
+          "title": "OpenGUI",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "opengui": [
+        {
+          "id": "opengui.chatView",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpenGUI",
+      "properties": {
+        "opengui.opencodePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to OpenCode binary (auto-detect if empty)"
+        },
+        "opengui.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Connect to existing server URL (leave empty to spawn server)"
+        },
+        "opengui.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-start OpenCode server on activation"
+        },
+        "opengui.defaultModel": {
+          "type": "string",
+          "default": "",
+          "description": "Default model for new sessions"
+        },
+        "opengui.autoApprove.read": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve file read operations"
+        },
+        "opengui.autoApprove.list": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve directory listing"
+        },
+        "opengui.showPermissionPreviews": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show code previews in permission cards"
+        },
+        "opengui.extendedThinking": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable extended thinking by default"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "npm run compile:extension && npm run compile:webview",
+    "compile:extension": "node esbuild.js",
+    "compile:webview": "vite build",
+    "watch": "npm-run-all -p watch:*",
+    "watch:extension": "node esbuild.js --watch",
+    "watch:webview": "vite build --watch",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts,tsx"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^20.x",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "@vscode/vsce": "^2.22.0",
+    "autoprefixer": "^10.4.16",
+    "esbuild": "^0.19.0",
+    "eslint": "^8.54.0",
+    "npm-run-all": "^4.1.5",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.0"
+  }
+}
