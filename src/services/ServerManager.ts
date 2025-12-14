@@ -38,9 +38,9 @@ export class ServerManager {
       this.log(`Working directory: ${this.workspaceRoot}`);
 
       await this.spawn(binaryPath);
-      await this.waitForHealth();
+      this.isRunning = true; // Set before health check so isHealthy() can proceed
 
-      this.isRunning = true;
+      await this.waitForHealth();
       this.startHealthCheck();
 
       this.log('✓ Server ready');
@@ -63,30 +63,43 @@ export class ServerManager {
 
     this.stopHealthCheck();
 
-    if (this.process) {
-      this.process.kill('SIGTERM');
+    if (this.process && this.process.pid) {
+      // On Windows with shell: true, we need to kill the entire process tree
+      if (process.platform === 'win32') {
+        try {
+          this.log(`Killing process tree for PID ${this.process.pid}`);
+          execSync(`taskkill /F /T /PID ${this.process.pid}`, { stdio: 'ignore' });
+          this.log('✓ Server stopped');
+        } catch (error) {
+          this.log(`Warning: Failed to kill process: ${error}`);
+        }
+        this.process = null;
+      } else {
+        // Unix-like systems: use SIGTERM/SIGKILL
+        this.process.kill('SIGTERM');
 
-      // Wait for graceful shutdown
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          if (this.process && !this.process.killed) {
-            this.log('Force killing server...');
-            this.process.kill('SIGKILL');
-          }
-          resolve();
-        }, 5000);
+        // Wait for graceful shutdown
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            if (this.process && !this.process.killed) {
+              this.log('Force killing server...');
+              this.process.kill('SIGKILL');
+            }
+            resolve();
+          }, 5000);
 
-        this.process?.on('exit', () => {
-          clearTimeout(timeout);
-          resolve();
+          this.process?.on('exit', () => {
+            clearTimeout(timeout);
+            resolve();
+          });
         });
-      });
 
-      this.process = null;
+        this.process = null;
+        this.log('✓ Server stopped');
+      }
     }
 
     this.isRunning = false;
-    this.log('✓ Server stopped');
   }
 
   /**
@@ -118,20 +131,29 @@ export class ServerManager {
    */
   async isHealthy(): Promise<boolean> {
     if (!this.isRunning) {
+      this.log('Health check: isRunning is false');
       return false;
     }
 
     return new Promise((resolve) => {
-      const req = http.get(`${this.getServerUrl()}/`, { timeout: 2000 }, (res) => {
+      const url = `${this.getServerUrl()}/`;
+      this.log(`Health check: Trying ${url}`);
+
+      const req = http.get(url, { timeout: 2000 }, (res) => {
+        this.log(`Health check: Got response with status ${res.statusCode}`);
+        // Consume response to free up connection
+        res.resume();
         // Any response means server is alive
         resolve(true);
       });
 
-      req.on('error', () => {
+      req.on('error', (err) => {
+        this.log(`Health check: Error - ${err.message}`);
         resolve(false);
       });
 
       req.on('timeout', () => {
+        this.log('Health check: Timeout');
         req.destroy();
         resolve(false);
       });
