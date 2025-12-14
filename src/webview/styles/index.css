@@ -5,6 +5,21 @@
 /* VSCode theme integration */
 :root {
   color-scheme: var(--vscode-editor-background);
+  
+  /* Semantic tokens mapped to VS Code vars */
+  --oc-bg: var(--vscode-editor-background);
+  --oc-fg: var(--vscode-editor-foreground);
+  --oc-muted: var(--vscode-descriptionForeground);
+  --oc-border: var(--vscode-panel-border);
+  --oc-surface: var(--vscode-input-background);
+  --oc-surface-elevated: var(--vscode-dropdown-background);
+  --oc-focus: var(--vscode-focusBorder);
+  --oc-accent: var(--vscode-button-background);
+  --oc-accent-hover: var(--vscode-button-hoverBackground);
+  --oc-accent-fg: var(--vscode-button-foreground);
+  --oc-success: var(--vscode-terminal-ansiGreen);
+  --oc-warning: var(--vscode-editorWarning-foreground);
+  --oc-danger: var(--vscode-errorForeground);
 }
 
 body {
@@ -14,6 +29,7 @@ body {
   font-size: var(--vscode-font-size);
   color: var(--vscode-foreground);
   background-color: var(--vscode-editor-background);
+  line-height: 1.6;
 }
 
 * {
@@ -40,4 +56,32 @@ body {
 
 ::-webkit-scrollbar-track {
   background-color: transparent;
+}
+
+/* Focus ring utility */
+.focus-ring {
+  outline: 2px solid var(--oc-focus);
+  outline-offset: 2px;
+}
+
+.focus-ring-inset {
+  outline: 2px solid var(--oc-focus);
+  outline-offset: -2px;
+}
+
+/* Utility classes for semantic tokens */
+.text-muted {
+  color: var(--oc-muted);
+}
+
+.border-default {
+  border-color: var(--oc-border);
+}
+
+.bg-surface {
+  background-color: var(--oc-surface);
+}
+
+.bg-surface-elevated {
+  background-color: var(--oc-surface-elevated);
 }

@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ChatMessage } from './components/ChatMessage';
+import React, { useState, useEffect } from 'react';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { AppShell } from './components/layout/AppShell';
+import { Header, ServerStatus } from './components/layout/Header';
+import { MessageList } from './components/chat/MessageList';
 import { ChatInput } from './components/ChatInput';
 
 interface Message {
@@ -21,7 +24,7 @@ export function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('disconnected');
 
   useEffect(() => {
     // Listen for messages from extension
@@ -31,6 +34,7 @@ export function App() {
       switch (message.type) {
         case 'sessionReady':
           setSessionId(message.payload.sessionId);
+          setServerStatus('connected');
           break;
         case 'messageUpdate':
           updateMessage(message.payload);
@@ -40,6 +44,10 @@ export function App() {
           break;
         case 'streamError':
           setIsStreaming(false);
+          setServerStatus('error');
+          break;
+        case 'serverStatus':
+          setServerStatus(message.payload.status);
           break;
       }
     };
@@ -51,11 +59,6 @@ export function App() {
 
     return () => window.removeEventListener('message', handleMessage);
   }, []);
-
-  useEffect(() => {
-    // Auto-scroll to bottom when new messages arrive
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
 
   function sendMessage(content: string) {
     // Add user message immediately
@@ -74,6 +77,11 @@ export function App() {
     });
 
     setIsStreaming(true);
+  }
+
+  function stopGeneration() {
+    vscode.postMessage({ type: 'stopGeneration' });
+    setIsStreaming(false);
   }
 
   function updateMessage(payload: { id: string; content: string }) {
@@ -99,26 +107,32 @@ export function App() {
     });
   }
 
+  const sessionTitle = sessionId ? `Session ${sessionId.slice(0, 8)}` : 'New Session';
+
   return (
-    <div className="h-screen flex flex-col bg-[var(--vscode-editor-background)] text-[var(--vscode-editor-foreground)]">
-      <div className="flex-1 overflow-y-auto p-4">
-        {messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center text-[var(--vscode-descriptionForeground)]">
-              <h2 className="text-lg font-semibold mb-2">Start a conversation</h2>
-              <p className="text-sm">Type a message below to begin</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            {messages.map(msg => (
-              <ChatMessage key={msg.id} message={msg} />
-            ))}
-            <div ref={messagesEndRef} />
-          </>
-        )}
-      </div>
-      <ChatInput onSend={sendMessage} disabled={isStreaming} />
-    </div>
+    <ErrorBoundary>
+      <AppShell
+        header={
+          <Header
+            status={serverStatus}
+            sessionTitle={sessionTitle}
+            onMenuClick={() => {
+              // TODO: Phase 2 - implement menu
+              console.log('Menu clicked');
+            }}
+          />
+        }
+        footer={
+          <ChatInput
+            onSend={sendMessage}
+            onStop={stopGeneration}
+            disabled={serverStatus !== 'connected'}
+            isStreaming={isStreaming}
+          />
+        }
+      >
+        <MessageList messages={messages} isStreaming={isStreaming} />
+      </AppShell>
+    </ErrorBoundary>
   );
 }

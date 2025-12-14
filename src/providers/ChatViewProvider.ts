@@ -8,6 +8,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private currentSessionId?: string;
   private currentMessageId?: string;
   private client?: OpenCodeClient;
+  private currentAbortController?: AbortController;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -96,6 +97,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'sendMessage':
         await this.handleSendMessage(message.payload);
         break;
+      case 'stopGeneration':
+        this.handleStopGeneration();
+        break;
       case 'ready':
         // Webview is ready - create session lazily on first message
         this.view?.webview.postMessage({
@@ -103,6 +107,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           payload: { sessionId: 'pending' }
         });
         break;
+    }
+  }
+
+  private handleStopGeneration(): void {
+    console.log('[ChatViewProvider] Stop generation requested');
+    if (this.currentAbortController) {
+      this.currentAbortController.abort();
+      this.currentAbortController = undefined;
+      
+      this.view?.webview.postMessage({
+        type: 'streamComplete',
+        payload: {
+          id: this.currentMessageId
+        }
+      });
     }
   }
 
@@ -121,6 +140,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    // Create abort controller for this request
+    this.currentAbortController = new AbortController();
+
     try {
       let accumulatedContent = '';
       this.currentMessageId = Date.now().toString();
@@ -131,6 +153,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         sessionId,
         payload.content
       )) {
+        // Check if aborted
+        if (this.currentAbortController.signal.aborted) {
+          console.log('[ChatViewProvider] Stream aborted');
+          break;
+        }
+
         console.log('[ChatViewProvider] Received event:', event);
 
         if (event.type === 'content_delta' && event.delta) {
@@ -167,8 +195,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       console.log('[ChatViewProvider] Message iteration complete');
     } catch (error) {
+      // Don't show error if it was aborted
+      if (this.currentAbortController?.signal.aborted) {
+        console.log('[ChatViewProvider] Stream was aborted by user');
+        return;
+      }
+      
       console.error('[ChatViewProvider] Failed to send message:', error);
       vscode.window.showErrorMessage(`Failed to send message: ${error}`);
+    } finally {
+      this.currentAbortController = undefined;
     }
   }
 

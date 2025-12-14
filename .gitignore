@@ -6,4 +6,5 @@ out
 .DS_Store
 .md/
 claude.md
-.claude/
+.claude
+local_resources
