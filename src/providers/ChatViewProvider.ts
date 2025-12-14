@@ -109,10 +109,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private async handleSendMessage(payload: { content: string }): Promise<void> {
     let sessionId: string;
 
+    console.log('[ChatViewProvider] handleSendMessage called with:', payload);
+
     try {
       // Ensure we have a session (creates one if needed)
       sessionId = await this.ensureSession();
+      console.log('[ChatViewProvider] Session ID:', sessionId);
     } catch (error) {
+      console.error('[ChatViewProvider] Failed to create session:', error);
       vscode.window.showErrorMessage(`${error}`);
       return;
     }
@@ -121,12 +125,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       let accumulatedContent = '';
       this.currentMessageId = Date.now().toString();
 
+      console.log('[ChatViewProvider] Starting message iteration...');
+
       for await (const event of this.getClient().sendMessage(
         sessionId,
         payload.content
       )) {
+        console.log('[ChatViewProvider] Received event:', event);
+
         if (event.type === 'content_delta' && event.delta) {
           accumulatedContent += event.delta;
+          console.log('[ChatViewProvider] Accumulated content:', accumulatedContent);
 
           this.view?.webview.postMessage({
             type: 'messageUpdate',
@@ -136,6 +145,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
           });
         } else if (event.type === 'content_complete') {
+          console.log('[ChatViewProvider] Stream complete');
           this.view?.webview.postMessage({
             type: 'streamComplete',
             payload: {
@@ -143,6 +153,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
           });
         } else if (event.type === 'error') {
+          console.error('[ChatViewProvider] Stream error:', event.error);
           vscode.window.showErrorMessage(`Message error: ${event.error}`);
           this.view?.webview.postMessage({
             type: 'streamError',
@@ -153,7 +164,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           });
         }
       }
+
+      console.log('[ChatViewProvider] Message iteration complete');
     } catch (error) {
+      console.error('[ChatViewProvider] Failed to send message:', error);
       vscode.window.showErrorMessage(`Failed to send message: ${error}`);
     }
   }

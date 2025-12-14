@@ -40,26 +40,66 @@ export class OpenCodeClient {
     sessionId: string,
     content: string
   ): AsyncGenerator<MessageEvent> {
-    const response = await this.client.session.prompt({
-      path: { id: sessionId },
-      body: { content }
-    });
+    console.log('[OpenCodeClient] Sending message to session:', sessionId);
+    console.log('[OpenCodeClient] Message content:', content);
 
-    const responseContent = response.data?.content || '';
+    try {
+      const response = await this.client.session.prompt({
+        path: { id: sessionId },
+        body: {
+          parts: [
+            {
+              type: 'text',
+              text: content
+            }
+          ]
+        }
+      });
 
-    // Yield content as delta event so it gets displayed
-    if (responseContent) {
+      console.log('[OpenCodeClient] Response received:', JSON.stringify(response, null, 2));
+
+      const responseError = (response as any)?.data?.info?.error;
+      if (responseError) {
+        const errorMessage =
+          responseError?.data?.message ||
+          responseError?.message ||
+          JSON.stringify(responseError);
+        console.error('[OpenCodeClient] Server returned error:', errorMessage);
+        yield {
+          type: 'error',
+          error: errorMessage
+        } as MessageEvent;
+        return;
+      }
+
+      const parts = ((response as any)?.data?.parts ?? []) as Array<any>;
+      const responseContent = parts
+        .filter(p => p && p.type === 'text' && typeof p.text === 'string')
+        .map(p => p.text)
+        .join('');
+
+      console.log('[OpenCodeClient] Response content:', responseContent);
+
+      // Yield content as delta event so it gets displayed
+      if (responseContent) {
+        yield {
+          type: 'content_delta',
+          delta: responseContent
+        } as MessageEvent;
+      }
+
+      // Then yield complete event
       yield {
-        type: 'content_delta',
-        delta: responseContent
+        type: 'content_complete',
+        content: responseContent
+      } as MessageEvent;
+    } catch (error) {
+      console.error('[OpenCodeClient] Error sending message:', error);
+      yield {
+        type: 'error',
+        error: error instanceof Error ? error.message : String(error)
       } as MessageEvent;
     }
-
-    // Then yield complete event
-    yield {
-      type: 'content_complete',
-      content: responseContent
-    } as MessageEvent;
   }
 
   /**
