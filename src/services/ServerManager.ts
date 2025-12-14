@@ -37,6 +37,15 @@ export class ServerManager {
       this.log(`Port: ${this.port}`);
       this.log(`Working directory: ${this.workspaceRoot}`);
 
+      // Check if port is already in use before spawning
+      const portInUse = await this.isPortInUse(this.port);
+      if (portInUse) {
+        this.log(`⚠ Port ${this.port} is already in use`);
+        await this.killProcessOnPort(this.port);
+        this.log(`Killed process on port ${this.port}, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for port to be released
+      }
+
       await this.spawn(binaryPath);
       this.isRunning = true; // Set before health check so isHealthy() can proceed
 
@@ -373,17 +382,81 @@ export class ServerManager {
 
     vscode.window.showErrorMessage(
       `OpenCode server port ${this.port} is already in use. Another instance may be running.`,
-      'Show Logs',
-      'Try Again'
-    ).then(action => {
-      if (action === 'Show Logs') {
+      'Kill & Restart',
+      'Show Logs'
+    ).then(async action => {
+      if (action === 'Kill & Restart') {
+        try {
+          await this.killProcessOnPort(this.port);
+          this.log(`Killed process on port ${this.port}`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          await this.restart();
+        } catch (err) {
+          vscode.window.showErrorMessage(`Failed to restart: ${err}`);
+        }
+      } else if (action === 'Show Logs') {
         this.showLogs();
-      } else if (action === 'Try Again') {
-        this.restart().catch(err => {
-          vscode.window.showErrorMessage(`Failed to restart: ${err.message}`);
-        });
       }
     });
+  }
+
+  /**
+   * Check if a port is in use
+   */
+  private async isPortInUse(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const req = http.get(`http://127.0.0.1:${port}/`, { timeout: 1000 }, (res) => {
+        res.resume();
+        resolve(true); // Port is in use
+      });
+
+      req.on('error', () => {
+        resolve(false); // Port is free
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(false); // Port is free
+      });
+    });
+  }
+
+  /**
+   * Kill process using a specific port
+   */
+  private async killProcessOnPort(port: number): Promise<void> {
+    if (process.platform === 'win32') {
+      try {
+        // Find PID using the port
+        const netstatOutput = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf-8' });
+        const lines = netstatOutput.split('\n');
+
+        for (const line of lines) {
+          if (line.includes('LISTENING')) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parts[parts.length - 1];
+            if (pid && /^\d+$/.test(pid)) {
+              this.log(`Killing process ${pid} on port ${port}`);
+              execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' });
+            }
+          }
+        }
+      } catch (error) {
+        this.log(`Failed to kill process on port ${port}: ${error}`);
+      }
+    } else {
+      // Unix-like systems
+      try {
+        const lsofOutput = execSync(`lsof -t -i:${port}`, { encoding: 'utf-8' });
+        const pid = lsofOutput.trim();
+        if (pid) {
+          this.log(`Killing process ${pid} on port ${port}`);
+          execSync(`kill -9 ${pid}`, { stdio: 'ignore' });
+        }
+      } catch (error) {
+        this.log(`Failed to kill process on port ${port}: ${error}`);
+      }
+    }
   }
 
   /**

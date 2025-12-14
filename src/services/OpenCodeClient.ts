@@ -14,7 +14,7 @@ export class OpenCodeClient {
    */
   async createSession(): Promise<Session> {
     const response = await this.client.session.create();
-    return response.data as Session;
+    return this.toSession(response.data);
   }
 
   /**
@@ -22,7 +22,7 @@ export class OpenCodeClient {
    */
   async getSession(id: string): Promise<Session> {
     const response = await this.client.session.get({ path: { id } });
-    return response.data as Session;
+    return this.toSession(response.data);
   }
 
   /**
@@ -30,7 +30,18 @@ export class OpenCodeClient {
    */
   async listSessions(): Promise<Session[]> {
     const response = await this.client.session.list();
-    return response.data as Session[];
+    const items = (response.data ?? []) as any[];
+    return items.map(s => this.toSession(s));
+  }
+
+  private toSession(data: any): Session {
+    return {
+      id: String(data?.id ?? ''),
+      title: typeof data?.title === 'string' ? data.title : undefined,
+      createdAt: new Date(typeof data?.time?.created === 'number' ? data.time.created : Date.now()),
+      updatedAt: new Date(typeof data?.time?.updated === 'number' ? data.time.updated : Date.now()),
+      messageCount: typeof data?.messageCount === 'number' ? data.messageCount : 0
+    };
   }
 
   /**
@@ -43,8 +54,16 @@ export class OpenCodeClient {
     console.log('[OpenCodeClient] Sending message to session:', sessionId);
     console.log('[OpenCodeClient] Message content:', content);
 
+    const abortController = new AbortController();
+    const startTime = Date.now();
+    let assistantMessageId: string | undefined;
+    let completed = false;
+
     try {
-      const response = await this.client.session.prompt({
+      const eventStream = await this.client.global.event({ signal: abortController.signal } as any);
+
+      // Start generation asynchronously; stream is delivered via global events.
+      await this.client.session.promptAsync({
         path: { id: sessionId },
         body: {
           parts: [
@@ -54,51 +73,98 @@ export class OpenCodeClient {
             }
           ]
         }
-      });
+      } as any);
 
-      console.log('[OpenCodeClient] Response received:', JSON.stringify(response, null, 2));
+      for await (const evt of eventStream.stream as AsyncGenerator<any>) {
+        const payload = evt?.payload;
+        if (!payload?.type) continue;
 
-      const responseError = (response as any)?.data?.info?.error;
-      if (responseError) {
-        const errorMessage =
-          responseError?.data?.message ||
-          responseError?.message ||
-          JSON.stringify(responseError);
-        console.error('[OpenCodeClient] Server returned error:', errorMessage);
-        yield {
-          type: 'error',
-          error: errorMessage
-        } as MessageEvent;
-        return;
+        // Detect the assistant message that belongs to this session.
+        if (payload.type === 'message.updated') {
+          const info = payload?.properties?.info;
+          if (!info || info.sessionID !== sessionId || info.role !== 'assistant') {
+            continue;
+          }
+
+          // If multiple sessions/messages are active, only lock onto messages created after this prompt started.
+          if (!assistantMessageId) {
+            const created = info?.time?.created;
+            if (typeof created === 'number' && created < startTime - 1000) {
+              continue;
+            }
+            assistantMessageId = info.id;
+          }
+
+          if (assistantMessageId && info.id !== assistantMessageId) {
+            continue;
+          }
+
+          const serverError = info?.error;
+          if (serverError) {
+            const errorMessage =
+              serverError?.data?.message ||
+              serverError?.message ||
+              JSON.stringify(serverError);
+            yield { type: 'error', error: errorMessage } as MessageEvent;
+            completed = true;
+            break;
+          }
+
+          if (info?.time?.completed) {
+            completed = true;
+            break;
+          }
+        }
+
+        if (payload.type === 'message.part.updated') {
+          const part = payload?.properties?.part;
+          const delta = payload?.properties?.delta;
+
+          if (!part || part.sessionID !== sessionId) {
+            continue;
+          }
+          if (assistantMessageId && part.messageID !== assistantMessageId) {
+            continue;
+          }
+
+          if (part.type === 'text' && typeof delta === 'string' && delta.length > 0) {
+            yield { type: 'content_delta', delta } as MessageEvent;
+          }
+        }
+
+        if (payload.type === 'session.error') {
+          const errorSessionId = payload?.properties?.sessionID;
+          if (errorSessionId && errorSessionId !== sessionId) {
+            continue;
+          }
+          const serverError = payload?.properties?.error;
+          if (serverError) {
+            const errorMessage =
+              serverError?.data?.message ||
+              serverError?.message ||
+              JSON.stringify(serverError);
+            yield { type: 'error', error: errorMessage } as MessageEvent;
+            completed = true;
+            break;
+          }
+        }
+
+        if (completed) {
+          break;
+        }
       }
 
-      const parts = ((response as any)?.data?.parts ?? []) as Array<any>;
-      const responseContent = parts
-        .filter(p => p && p.type === 'text' && typeof p.text === 'string')
-        .map(p => p.text)
-        .join('');
-
-      console.log('[OpenCodeClient] Response content:', responseContent);
-
-      // Yield content as delta event so it gets displayed
-      if (responseContent) {
-        yield {
-          type: 'content_delta',
-          delta: responseContent
-        } as MessageEvent;
+      if (completed) {
+        yield { type: 'content_complete' } as MessageEvent;
       }
-
-      // Then yield complete event
-      yield {
-        type: 'content_complete',
-        content: responseContent
-      } as MessageEvent;
     } catch (error) {
       console.error('[OpenCodeClient] Error sending message:', error);
       yield {
         type: 'error',
         error: error instanceof Error ? error.message : String(error)
       } as MessageEvent;
+    } finally {
+      abortController.abort();
     }
   }
 
@@ -107,7 +173,7 @@ export class OpenCodeClient {
    */
   async *streamEvents(): AsyncGenerator<ServerEvent> {
     const eventStream = await this.client.global.event();
-    for await (const event of eventStream) {
+    for await (const event of eventStream.stream as AsyncGenerator<any>) {
       yield event as ServerEvent;
     }
   }
