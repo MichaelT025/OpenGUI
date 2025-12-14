@@ -1,8 +1,12 @@
 import * as vscode from 'vscode';
 import { ServerManager } from './services/ServerManager';
+import { OpenCodeClient } from './services/OpenCodeClient';
+import { ChatViewProvider } from './providers/ChatViewProvider';
 import { registerServerCommands, createStatusBarItem } from './commands/server';
 
 let serverManager: ServerManager | null = null;
+let openCodeClient: OpenCodeClient | null = null;
+let chatViewProvider: ChatViewProvider | null = null;
 let statusBarItem: vscode.StatusBarItem | null = null;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -26,9 +30,15 @@ export async function activate(context: vscode.ExtensionContext) {
 	statusBarItem = createStatusBarItem(serverManager);
 	context.subscriptions.push(statusBarItem);
 
-	// Register placeholder chat command
+	// Create and register ChatViewProvider (it will create the client lazily)
+	chatViewProvider = new ChatViewProvider(context, serverManager);
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider('opengui.chatView', chatViewProvider)
+	);
+
+	// Register open chat command
 	const openChatCommand = vscode.commands.registerCommand('opengui.openChat', () => {
-		vscode.window.showInformationMessage('OpenGUI: Chat interface coming soon...');
+		vscode.commands.executeCommand('opengui.chatView.focus');
 	});
 	context.subscriptions.push(openChatCommand);
 

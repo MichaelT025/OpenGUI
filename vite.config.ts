@@ -4,17 +4,23 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  root: 'src/webview',
   build: {
-    outDir: 'dist/webview',
+    outDir: '../../dist/webview',
     emptyOutDir: true,
+    cssCodeSplit: false, // Bundle all CSS into one file
     rollupOptions: {
-      input: {
-        main: path.resolve(__dirname, 'src/webview/index.html')
-      },
+      input: path.resolve(__dirname, 'src/webview/main.tsx'),
       output: {
-        entryFileNames: '[name].js',
-        chunkFileNames: '[name].js',
-        assetFileNames: '[name].[ext]'
+        entryFileNames: 'main.js',
+        chunkFileNames: 'main.js',
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name?.endsWith('.css')) {
+            return 'main.css';
+          }
+          return '[name].[ext]';
+        },
+        format: 'iife' // Use IIFE format for VSCode webviews (not ESM)
       }
     }
   },

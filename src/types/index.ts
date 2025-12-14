@@ -88,6 +88,14 @@ export interface ServerEvent {
   data?: any;
 }
 
+export interface MessageEvent {
+  type: 'content_delta' | 'content_complete' | 'tool_call' | 'error';
+  messageId?: string;
+  delta?: string;
+  content?: string;
+  error?: string;
+}
+
 // Webview message types
 export interface WebviewMessage {
   type: string;
