@@ -1,16 +1,34 @@
 import React from 'react';
 import { StatusDot } from '../ui/Badge';
-import { IconButton } from '../ui/IconButton';
+import { SessionSwitcher } from '../session/SessionSwitcher';
+import { MenuActions } from '../menu/MenuActions';
+import type { Session } from '../../hooks/useChatStore';
 
 export type ServerStatus = 'connected' | 'disconnected' | 'error';
 
 interface HeaderProps {
   status: ServerStatus;
   sessionTitle?: string;
-  onMenuClick?: () => void;
+  sessions?: Session[];
+  currentSessionId?: string | null;
+  onSelectSession?: (sessionId: string) => void;
+  onNewSession?: () => void;
+  onClearSession?: () => void;
+  onOpenLogs?: () => void;
+  onOpenSettings?: () => void;
 }
 
-export function Header({ status, sessionTitle = 'New Session', onMenuClick }: HeaderProps) {
+export function Header({
+  status,
+  sessionTitle = 'New Session',
+  sessions = [],
+  currentSessionId,
+  onSelectSession,
+  onNewSession,
+  onClearSession,
+  onOpenLogs,
+  onOpenSettings,
+}: HeaderProps) {
   return (
     <div className="flex items-center justify-between px-4 py-2 bg-[var(--oc-bg)]">
       <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -23,21 +41,28 @@ export function Header({ status, sessionTitle = 'New Session', onMenuClick }: He
         </span>
       </div>
       
-      {/* Menu button */}
-      {onMenuClick && (
-        <IconButton
-          aria-label="Open menu"
-          onClick={onMenuClick}
-          size="sm"
-          className="flex-shrink-0"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <circle cx="3" cy="8" r="1.5" />
-            <circle cx="8" cy="8" r="1.5" />
-            <circle cx="13" cy="8" r="1.5" />
-          </svg>
-        </IconButton>
-      )}
+      {/* Actions */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {/* Session History */}
+        {onSelectSession && onNewSession && (
+          <SessionSwitcher
+            sessions={sessions}
+            currentSessionId={currentSessionId || null}
+            onSelectSession={onSelectSession}
+            onNewSession={onNewSession}
+          />
+        )}
+        
+        {/* Menu */}
+        {onNewSession && onClearSession && onOpenLogs && onOpenSettings && (
+          <MenuActions
+            onNewSession={onNewSession}
+            onClearSession={onClearSession}
+            onOpenLogs={onOpenLogs}
+            onOpenSettings={onOpenSettings}
+          />
+        )}
+      </div>
     </div>
   );
 }

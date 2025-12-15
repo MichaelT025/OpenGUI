@@ -1,138 +1,174 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
+import { ChatProvider, useChatStore } from './hooks/useChatStore';
+import { useVSCodeMessaging, useSessionPersistence } from './hooks/useVSCode';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppShell } from './components/layout/AppShell';
-import { Header, ServerStatus } from './components/layout/Header';
+import { Header } from './components/layout/Header';
 import { MessageList } from './components/chat/MessageList';
 import { ChatInput } from './components/ChatInput';
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-}
-
-declare function acquireVsCodeApi(): {
-  postMessage: (message: unknown) => void;
-  getState: () => unknown;
-  setState: (state: unknown) => void;
-};
-
-const vscode = acquireVsCodeApi();
-
-export function App() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [serverStatus, setServerStatus] = useState<ServerStatus>('disconnected');
+function ChatApp() {
+  const { state, actions } = useChatStore();
+  const { postMessage, addEventListener } = useVSCodeMessaging();
+  const { saveLastSessionId, getLastSessionId } = useSessionPersistence();
 
   useEffect(() => {
     // Listen for messages from extension
-    const handleMessage = (event: MessageEvent) => {
+    const cleanup = addEventListener((event: MessageEvent) => {
       const message = event.data;
 
       switch (message.type) {
         case 'sessionReady':
-          setSessionId(message.payload.sessionId);
-          setServerStatus('connected');
+          const sessionId = message.payload.sessionId;
+          actions.setSession(sessionId);
+          actions.setServerStatus('connected');
+          if (sessionId !== 'pending') {
+            saveLastSessionId(sessionId);
+          }
           break;
+
         case 'messageUpdate':
-          updateMessage(message.payload);
+          actions.updateMessage(message.payload.id, message.payload.content);
           break;
+
         case 'streamComplete':
-          setIsStreaming(false);
+          actions.setStreaming(false);
+          actions.setCurrentMessageId(null);
           break;
+
         case 'streamError':
-          setIsStreaming(false);
-          setServerStatus('error');
+          actions.setStreaming(false);
+          actions.setServerStatus('error');
+          actions.setCurrentMessageId(null);
           break;
+
         case 'serverStatus':
-          setServerStatus(message.payload.status);
+          actions.setServerStatus(message.payload.status);
+          break;
+
+        case 'sessionList':
+          // Convert dates from ISO strings
+          const sessions = message.payload.sessions.map((s: any) => ({
+            ...s,
+            createdAt: new Date(s.createdAt),
+            updatedAt: new Date(s.updatedAt),
+          }));
+          actions.updateSessions(sessions);
+          break;
+
+        case 'sessionSwitched':
+          actions.setSession(message.payload.sessionId);
+          // Convert dates for messages
+          const messages = message.payload.messages.map((m: any) => ({
+            ...m,
+            timestamp: new Date(m.timestamp),
+          }));
+          actions.setMessages(messages);
+          saveLastSessionId(message.payload.sessionId);
           break;
       }
-    };
-
-    window.addEventListener('message', handleMessage);
+    });
 
     // Notify extension that webview is ready
-    vscode.postMessage({ type: 'ready' });
+    postMessage({ type: 'ready' });
 
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
+    // Request last session if available
+    const lastSessionId = getLastSessionId();
+    if (lastSessionId) {
+      postMessage({ type: 'switchSession', sessionId: lastSessionId });
+    }
+
+    return cleanup;
+  }, [addEventListener, postMessage, actions, saveLastSessionId, getLastSessionId]);
 
   function sendMessage(content: string) {
     // Add user message immediately
-    const userMessage: Message = {
+    const userMessage = {
       id: Date.now().toString(),
-      role: 'user',
+      role: 'user' as const,
       content,
       timestamp: new Date()
     };
-    setMessages(prev => [...prev, userMessage]);
+    actions.addMessage(userMessage);
 
-    // Send to extension (session will be created if needed)
-    vscode.postMessage({
+    // Send to extension
+    postMessage({
       type: 'sendMessage',
       payload: { content }
     });
 
-    setIsStreaming(true);
+    actions.setStreaming(true);
+    actions.setCurrentMessageId(Date.now().toString());
   }
 
   function stopGeneration() {
-    vscode.postMessage({ type: 'stopGeneration' });
-    setIsStreaming(false);
+    postMessage({ type: 'stopGeneration' });
+    actions.setStreaming(false);
   }
 
-  function updateMessage(payload: { id: string; content: string }) {
-    setMessages(prev => {
-      const existing = prev.find(m => m.id === payload.id);
-      if (existing) {
-        return prev.map(m =>
-          m.id === payload.id
-            ? { ...m, content: payload.content }
-            : m
-        );
-      } else {
-        return [
-          ...prev,
-          {
-            id: payload.id,
-            role: 'assistant' as const,
-            content: payload.content,
-            timestamp: new Date()
-          }
-        ];
-      }
-    });
+  function handleNewSession() {
+    postMessage({ type: 'createSession' });
+    actions.clearMessages();
   }
 
-  const sessionTitle = sessionId ? `Session ${sessionId.slice(0, 8)}` : 'New Session';
+  function handleSwitchSession(sessionId: string) {
+    postMessage({ type: 'switchSession', sessionId });
+  }
+
+  function handleClearSession() {
+    if (confirm('Clear all messages in this session?')) {
+      actions.clearMessages();
+      // Optionally notify extension to clear server-side too
+    }
+  }
+
+  function handleOpenLogs() {
+    postMessage({ type: 'openLogs' });
+  }
+
+  function handleOpenSettings() {
+    postMessage({ type: 'openSettings' });
+  }
+
+  const sessionTitle = state.currentSessionId
+    ? `Session ${state.currentSessionId.slice(0, 8)}`
+    : 'New Session';
 
   return (
     <ErrorBoundary>
       <AppShell
         header={
           <Header
-            status={serverStatus}
+            status={state.serverStatus}
             sessionTitle={sessionTitle}
-            onMenuClick={() => {
-              // TODO: Phase 2 - implement menu
-              console.log('Menu clicked');
-            }}
+            sessions={state.sessions}
+            currentSessionId={state.currentSessionId}
+            onSelectSession={handleSwitchSession}
+            onNewSession={handleNewSession}
+            onClearSession={handleClearSession}
+            onOpenLogs={handleOpenLogs}
+            onOpenSettings={handleOpenSettings}
           />
         }
         footer={
           <ChatInput
             onSend={sendMessage}
             onStop={stopGeneration}
-            disabled={serverStatus !== 'connected'}
-            isStreaming={isStreaming}
+            disabled={state.serverStatus !== 'connected'}
+            isStreaming={state.isStreaming}
           />
         }
       >
-        <MessageList messages={messages} isStreaming={isStreaming} />
+        <MessageList messages={state.messages} isStreaming={state.isStreaming} />
       </AppShell>
     </ErrorBoundary>
+  );
+}
+
+export function App() {
+  return (
+    <ChatProvider>
+      <ChatApp />
+    </ChatProvider>
   );
 }
